@@ -1,7 +1,7 @@
 use crate::bus::MessageBus;
 use crate::controller::handler::CommandHandler;
 use crate::error::{DaemonError, Result};
-use crate::module::ModuleRegistry;
+use crate::module::ModuleManager;
 use crate::protocol::{ControllerRequest, ControllerResponse};
 use crate::storage::DataLayer;
 use futures::{SinkExt, StreamExt};
@@ -22,9 +22,9 @@ impl IpcServer {
         address: String,
         bus: MessageBus,
         data_layer: DataLayer,
-        module_registry: ModuleRegistry,
+        module_manager: ModuleManager,
     ) -> Self {
-        let handler = Arc::new(CommandHandler::new(bus, data_layer, module_registry));
+        let handler = Arc::new(CommandHandler::new(bus, data_layer, module_manager));
         Self {
             address,
             handler,

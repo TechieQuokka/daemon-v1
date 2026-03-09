@@ -38,6 +38,7 @@ DaemonV1/
 │   │
 │   ├── module/                     # Module 관리
 │   │   ├── mod.rs
+│   │   ├── manager.rs              # Module 메시지 처리 및 조율
 │   │   ├── process.rs              # 프로세스 spawn, stdio 통신
 │   │   └── registry.rs             # Module 레지스트리
 │   │
@@ -77,6 +78,7 @@ DaemonV1/
 - **types.rs**: `DataEntry` (Inline | File)
 
 ### 4. Module Management (src/module/)
+- **manager.rs**: `ModuleManager` - 모듈 메시지 처리, Bus/DataLayer 통합
 - **process.rs**: `ModuleProcess` - 프로세스 spawn, stdin/stdout 통신
 - **registry.rs**: `ModuleRegistry` - 활성 모듈 관리, 상태 추적
 
@@ -97,9 +99,9 @@ Controller (TCP)
 IpcServer (server.rs)
   ↓ parse
 CommandHandler (handler.rs)
-  ↓ module.command action
-ModuleRegistry (registry.rs)
-  ↓ send_to_module
+  ↓ module.start action
+ModuleManager (manager.rs)
+  ↓ spawn process + message handler
 ModuleProcess (process.rs)
   ↓ stdin JSON
 Module (외부 프로세스)
@@ -112,8 +114,8 @@ Module A (stdout)
   ↓ JSON: {type: "publish"}
 ModuleProcess
   ↓ from_module_rx
-(Daemon 메인 루프에서 처리 - TODO)
-  ↓
+ModuleManager.handle_module_message()
+  ↓ ModuleToDaemon::Publish
 MessageBus.publish()
   ↓ mpsc channel
 Sequential Processor (processor.rs)
@@ -121,6 +123,7 @@ Sequential Processor (processor.rs)
 SubscriptionRegistry (subscriber.rs)
   ↓ pattern matching
 Module B's receiver
+  ↓ forwarding task
   ↓ DaemonToModule::Event
 Module B (stdin)
 ```
@@ -130,8 +133,10 @@ Module B (stdin)
 ```
 Module
   ↓ {type: "data_write"}
-(Daemon 처리 - TODO)
-  ↓
+ModuleProcess
+  ↓ from_module_rx
+ModuleManager.handle_module_message()
+  ↓ ModuleToDaemon::DataWrite
 DataLayer.set()
   ↓ RwLock write
 SieveCache
@@ -152,20 +157,22 @@ SieveCache
 - [x] Sequential message bus
 - [x] Module process spawning
 - [x] Module registry
+- [x] Module manager (메시지 처리)
 - [x] IPC server (TCP)
 - [x] Command handler
 - [x] Configuration management
+- [x] Module message processing loop
+  - Module stdout → Bus 연결
+  - Module stdout → Data Layer 연결
+  - Bus → Module stdin 연결
+- [x] Lifecycle management
+  - Graceful shutdown (configurable)
 - [x] Example modules (Rust, Python)
 - [x] Integration tests
 - [x] Documentation
 
-### 🚧 미완성 (다음 단계)
-- [ ] Daemon 메인 루프 통합
-  - Module stdout → Bus 연결
-  - Module stdout → Data Layer 연결
-  - Bus → Module stdin 연결
-- [ ] Lifecycle management
-  - Graceful shutdown
+### 🚧 향후 개선 사항
+- [ ] Module crash recovery
   - Module crash 감지
 - [ ] Health check 구현
 - [ ] 동적 로딩 (runtime module 추가/제거)

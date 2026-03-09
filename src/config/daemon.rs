@@ -9,6 +9,10 @@ pub struct DaemonConfig {
     #[serde(default = "default_ipc_address")]
     pub ipc_address: String,
 
+    /// Shutdown all modules when daemon exits (default: true)
+    #[serde(default = "default_shutdown_modules_on_exit")]
+    pub shutdown_modules_on_exit: bool,
+
     /// Message bus configuration
     #[serde(default)]
     pub bus: BusConfig,
@@ -22,6 +26,7 @@ impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
             ipc_address: default_ipc_address(),
+            shutdown_modules_on_exit: default_shutdown_modules_on_exit(),
             bus: BusConfig::default(),
             storage: StorageConfig::default(),
         }
@@ -30,6 +35,10 @@ impl Default for DaemonConfig {
 
 fn default_ipc_address() -> String {
     "127.0.0.1:9000".to_string()
+}
+
+fn default_shutdown_modules_on_exit() -> bool {
+    true
 }
 
 impl DaemonConfig {

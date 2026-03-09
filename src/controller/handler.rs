@@ -1,5 +1,5 @@
 use crate::bus::{BusMessage, MessageBus, MessageSource};
-use crate::module::ModuleRegistry;
+use crate::module::ModuleManager;
 use crate::protocol::{actions, ControllerRequest, ControllerResponse};
 use crate::storage::DataLayer;
 use serde_json::{json, Value};
@@ -9,15 +9,15 @@ use std::path::PathBuf;
 pub struct CommandHandler {
     bus: MessageBus,
     data_layer: DataLayer,
-    module_registry: ModuleRegistry,
+    module_manager: ModuleManager,
 }
 
 impl CommandHandler {
-    pub fn new(bus: MessageBus, data_layer: DataLayer, module_registry: ModuleRegistry) -> Self {
+    pub fn new(bus: MessageBus, data_layer: DataLayer, module_manager: ModuleManager) -> Self {
         Self {
             bus,
             data_layer,
-            module_registry,
+            module_manager,
         }
     }
 
@@ -55,7 +55,7 @@ impl CommandHandler {
         let config = params["config"].clone();
 
         let module_id = self
-            .module_registry
+            .module_manager
             .start_module(name.clone(), PathBuf::from(path), config)
             .await
             .map_err(|e| e.to_string())?;
@@ -68,7 +68,7 @@ impl CommandHandler {
         let id = params["id"].as_str().ok_or("Missing 'id' field")?;
         let timeout = params["timeout"].as_u64().unwrap_or(5000);
 
-        self.module_registry
+        self.module_manager
             .stop_module(id, timeout)
             .await
             .map_err(|e| e.to_string())?;
@@ -77,7 +77,7 @@ impl CommandHandler {
     }
 
     async fn handle_module_list(&self) -> Result<Value, String> {
-        let modules = self.module_registry.list_modules().await;
+        let modules = self.module_manager.list_modules().await;
         Ok(json!({ "modules": modules }))
     }
 
@@ -86,7 +86,7 @@ impl CommandHandler {
         let module_id = params["module"].as_str().ok_or("Missing 'module' field")?;
 
         let info = self
-            .module_registry
+            .module_manager
             .get_info(module_id)
             .await
             .ok_or_else(|| format!("Module '{}' not found", module_id))?;
@@ -169,7 +169,7 @@ impl CommandHandler {
     }
 
     async fn handle_daemon_status(&self) -> Result<Value, String> {
-        let module_count = self.module_registry.count().await;
+        let module_count = self.module_manager.count().await;
         let subscriber_count = self.bus.subscriber_count().await;
         let data_keys = self.data_layer.len().map_err(|e| e.to_string())?;
 

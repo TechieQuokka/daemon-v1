@@ -29,7 +29,7 @@ pub struct ModuleInfo {
 
 /// Module registry for managing active modules
 pub struct ModuleRegistry {
-    modules: Arc<RwLock<HashMap<String, ModuleProcess>>>,
+    pub(crate) modules: Arc<RwLock<HashMap<String, ModuleProcess>>>,
     info: Arc<RwLock<HashMap<String, ModuleInfo>>>,
 }
 
@@ -180,6 +180,26 @@ impl ModuleRegistry {
     pub async fn count(&self) -> usize {
         let modules = self.modules.read().await;
         modules.len()
+    }
+
+    /// Shutdown all modules
+    pub async fn shutdown_all(&self, timeout_ms: u64) {
+        // Get all module IDs
+        let module_ids: Vec<String> = {
+            let modules = self.modules.read().await;
+            modules.keys().cloned().collect()
+        };
+
+        tracing::info!("Shutting down {} module(s)...", module_ids.len());
+
+        // Stop each module
+        for id in module_ids {
+            if let Err(e) = self.stop_module(&id, timeout_ms).await {
+                tracing::error!("Failed to stop module '{}': {}", id, e);
+            }
+        }
+
+        tracing::info!("All modules have been shut down");
     }
 }
 
