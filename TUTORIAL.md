@@ -331,8 +331,8 @@ client = DaemonClient()
 client.start_module('producer', './producer.py')
 client.start_module('consumer', './consumer.py')
 
-# 2. Producer 트리거
-# (Module에게 명령을 전송하는 기능은 TODO)
+# 2. Producer 트리거 (module.command 사용)
+client.send_command('producer', 'cmd-1', {'action': 'produce', 'count': 10})
 
 # 3. 결과 확인
 result = client.get_data('produced_data')

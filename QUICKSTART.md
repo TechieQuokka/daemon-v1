@@ -16,8 +16,8 @@ cargo build --release
 # 기본 설정으로 실행
 ./target/release/daemon_v1
 
-# 설정 파일 지정 (TODO: 아직 미구현)
-# ./target/release/daemon_v1 --config config.toml
+# 설정 파일 지정
+./target/release/daemon_v1 --config daemon-config.toml
 ```
 
 ## 테스트

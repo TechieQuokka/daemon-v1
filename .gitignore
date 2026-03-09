@@ -19,11 +19,11 @@ Thumbs.db
 *.log
 
 # Config (keep example)
-config.toml
+daemon-config.toml
 
 # Data
 /data_layer/
-config.toml
+daemon-config.toml
 
 # Test directory
 my_test/

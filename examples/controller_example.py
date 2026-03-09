@@ -80,6 +80,15 @@ class DaemonClient:
             'module': module_id
         })
 
+    def send_command(self, module_id, command_id, payload):
+        """Module에 명령 전송"""
+        params = {
+            'module': module_id,
+            'id': command_id,
+            **payload  # payload의 모든 필드를 params에 병합
+        }
+        return self._send_request('module.command', params)
+
     # Data Layer
 
     def get_data(self, key):

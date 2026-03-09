@@ -5,8 +5,19 @@ use daemon_v1::{
     module::ModuleManager,
     storage::DataLayer,
 };
+use clap::Parser;
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
+
+/// Daemon V1 - Process-isolated modular daemon
+#[derive(Parser, Debug)]
+#[command(name = "daemon_v1")]
+#[command(version, about, long_about = None)]
+struct Cli {
+    /// Path to configuration file
+    #[arg(short, long, default_value = "daemon-config.toml")]
+    config: String,
+}
 
 #[tokio::main]
 async fn main() -> daemon_v1::Result<()> {
@@ -19,8 +30,11 @@ async fn main() -> daemon_v1::Result<()> {
 
     tracing::info!("Starting Daemon V1");
 
+    // Parse command-line arguments
+    let cli = Cli::parse();
+
     // Load configuration
-    let config_path = "config.toml";
+    let config_path = &cli.config;
     let config = if std::path::Path::new(config_path).exists() {
         tracing::info!("Loading configuration from {}", config_path);
         match DaemonConfig::from_file(config_path) {
@@ -54,12 +68,16 @@ async fn main() -> daemon_v1::Result<()> {
     tracing::info!("✓ Data layer initialized (capacity: {})", config.storage.max_keys);
     tracing::info!("✓ Module manager initialized");
 
+    // Create shutdown channel for daemon.shutdown action
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel(1);
+
     // Start IPC server
     let ipc_server = IpcServer::new(
         config.ipc_address.clone(),
         bus.clone(),
         data_layer.clone(),
         module_manager.clone(),
+        Some(shutdown_tx),
     );
 
     tracing::info!("Starting IPC server on {}", config.ipc_address);
@@ -76,15 +94,19 @@ async fn main() -> daemon_v1::Result<()> {
 
     tracing::info!("✓ Daemon V1 is running");
     tracing::info!("");
-    tracing::info!("Press Ctrl+C to shutdown");
+    tracing::info!("Press Ctrl+C to shutdown, or send 'daemon.shutdown' via controller");
 
-    // Wait for shutdown signal
-    tokio::signal::ctrl_c()
-        .await
-        .expect("Failed to listen for ctrl-c");
-
-    tracing::info!("");
-    tracing::info!("Shutdown signal received, stopping daemon...");
+    // Wait for shutdown signal (either Ctrl+C or controller request)
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("");
+            tracing::info!("Ctrl+C received, stopping daemon...");
+        }
+        _ = shutdown_rx.recv() => {
+            tracing::info!("");
+            tracing::info!("Shutdown requested by controller, stopping daemon...");
+        }
+    }
 
     // Graceful shutdown
     if config.shutdown_modules_on_exit {

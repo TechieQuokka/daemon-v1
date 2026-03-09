@@ -341,7 +341,7 @@ cargo build --release
 ./target/release/daemon_v1
 
 # With custom configuration
-./target/release/daemon_v1 --config config.toml
+./target/release/daemon_v1 --config daemon-config.toml
 ```
 
 ### Run Tests
@@ -387,23 +387,22 @@ See `examples/modules/` for reference implementations in:
 - [x] Sequential message bus processor
 - [x] Configuration management
 - [x] Basic daemon structure
-
-### In Progress 🚧
-
-- [ ] Module process management
-- [ ] IPC server (TCP)
-- [ ] Lifecycle management
-- [ ] Dynamic module loading
-- [ ] Health checks
+- [x] Module process management
+- [x] IPC server (TCP)
+- [x] Lifecycle management
+- [x] Dynamic module loading
+- [x] Health checks
+- [x] Example modules (Rust, Python)
+- [x] Controller client library (Python)
+- [x] Command-line argument parsing (--config flag)
+- [x] Module command execution (module.command action)
+- [x] Daemon shutdown via controller (daemon.shutdown action)
 
 ### Planned 📋
 
-- [ ] Example modules
-- [ ] Controller client library
+- [ ] Controller client library (Rust, Node.js)
 - [ ] Performance benchmarks
-- [ ] Docker deployment
-- [ ] systemd integration
-- [ ] Monitoring/metrics
+- [ ] Monitoring/metrics (Prometheus)
 
 ## Architecture Decisions
 

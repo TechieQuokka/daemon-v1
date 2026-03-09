@@ -342,6 +342,31 @@ impl ModuleManager {
         self.registry.count().await
     }
 
+    /// Send command to a module
+    pub async fn send_command(&self, module_id: &str, command_id: String, payload: serde_json::Value) -> Result<()> {
+        // Get module process
+        let process_arc = {
+            let modules = self.registry.modules.read().await;
+            modules
+                .get(module_id)
+                .ok_or_else(|| DaemonError::Module(format!("Module '{}' not found", module_id)))?
+                .clone()
+        };
+
+        // Send command message
+        let command = DaemonToModule::Command {
+            id: command_id,
+            payload,
+        };
+
+        let process = process_arc.lock().await;
+        process.send(command)?;
+
+        tracing::info!("Sent command to module '{}'", module_id);
+
+        Ok(())
+    }
+
     /// Shutdown all modules
     pub async fn shutdown_all(&self, timeout_ms: u64) {
         // Abort all handlers

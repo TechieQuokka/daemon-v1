@@ -23,11 +23,15 @@ impl IpcServer {
         bus: MessageBus,
         data_layer: DataLayer,
         module_manager: ModuleManager,
+        daemon_shutdown_tx: Option<tokio::sync::mpsc::Sender<()>>,
     ) -> Self {
-        let handler = Arc::new(CommandHandler::new(bus, data_layer, module_manager));
+        let mut handler = CommandHandler::new(bus, data_layer, module_manager);
+        if let Some(tx) = daemon_shutdown_tx {
+            handler = handler.with_shutdown(tx);
+        }
         Self {
             address,
-            handler,
+            handler: Arc::new(handler),
             shutdown_tx: Arc::new(RwLock::new(None)),
         }
     }

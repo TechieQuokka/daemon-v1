@@ -10,6 +10,7 @@ pub struct CommandHandler {
     bus: MessageBus,
     data_layer: DataLayer,
     module_manager: ModuleManager,
+    shutdown_tx: Option<tokio::sync::mpsc::Sender<()>>,
 }
 
 impl CommandHandler {
@@ -18,7 +19,14 @@ impl CommandHandler {
             bus,
             data_layer,
             module_manager,
+            shutdown_tx: None,
         }
+    }
+
+    /// Set shutdown channel for daemon.shutdown action
+    pub fn with_shutdown(mut self, shutdown_tx: tokio::sync::mpsc::Sender<()>) -> Self {
+        self.shutdown_tx = Some(shutdown_tx);
+        self
     }
 
     /// Handle a controller request
@@ -27,6 +35,7 @@ impl CommandHandler {
             actions::MODULE_START => self.handle_module_start(request.params).await,
             actions::MODULE_STOP => self.handle_module_stop(request.params).await,
             actions::MODULE_LIST => self.handle_module_list().await,
+            actions::MODULE_COMMAND => self.handle_module_command(request.params).await,
             actions::HEALTH_CHECK => self.handle_health_check(request.params).await,
             actions::DATA_GET => self.handle_data_get(request.params).await,
             actions::DATA_SET => self.handle_data_set(request.params).await,
@@ -34,6 +43,7 @@ impl CommandHandler {
             actions::DATA_LIST => self.handle_data_list().await,
             actions::BUS_PUBLISH => self.handle_bus_publish(request.params).await,
             actions::DAEMON_STATUS => self.handle_daemon_status().await,
+            actions::DAEMON_SHUTDOWN => self.handle_daemon_shutdown().await,
             _ => Err(format!("Unknown action: {}", request.action)),
         };
 
@@ -79,6 +89,31 @@ impl CommandHandler {
     async fn handle_module_list(&self) -> Result<Value, String> {
         let modules = self.module_manager.list_modules().await;
         Ok(json!({ "modules": modules }))
+    }
+
+    async fn handle_module_command(&self, params: Option<Value>) -> Result<Value, String> {
+        let params = params.ok_or("Missing parameters")?;
+        let module_id = params["module"]
+            .as_str()
+            .ok_or("Missing 'module' field")?;
+        let command_id = params["id"]
+            .as_str()
+            .ok_or("Missing 'id' field")?
+            .to_string();
+
+        // Extract command payload (all fields except 'module' and 'id')
+        let mut payload = params.clone();
+        if let Some(obj) = payload.as_object_mut() {
+            obj.remove("module");
+            obj.remove("id");
+        }
+
+        self.module_manager
+            .send_command(module_id, command_id, payload)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(json!({ "status": "sent" }))
     }
 
     async fn handle_health_check(&self, params: Option<Value>) -> Result<Value, String> {
@@ -179,5 +214,15 @@ impl CommandHandler {
             "data_keys": data_keys,
             "status": "running"
         }))
+    }
+
+    async fn handle_daemon_shutdown(&self) -> Result<Value, String> {
+        if let Some(tx) = &self.shutdown_tx {
+            tracing::info!("Daemon shutdown requested by controller");
+            let _ = tx.send(()).await;
+            Ok(json!({ "status": "shutting_down" }))
+        } else {
+            Err("Shutdown not available".to_string())
+        }
     }
 }
