@@ -29,7 +29,7 @@ pub struct ModuleInfo {
 
 /// Module registry for managing active modules
 pub struct ModuleRegistry {
-    pub(crate) modules: Arc<RwLock<HashMap<String, ModuleProcess>>>,
+    pub(crate) modules: Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<ModuleProcess>>>>>,
     info: Arc<RwLock<HashMap<String, ModuleInfo>>>,
 }
 
@@ -87,10 +87,10 @@ impl ModuleRegistry {
             }
         }
 
-        // Store process
+        // Store process in Arc<Mutex>
         {
             let mut modules = self.modules.write().await;
-            modules.insert(id.clone(), process);
+            modules.insert(id.clone(), Arc::new(tokio::sync::Mutex::new(process)));
         }
 
         tracing::info!("Module '{}' started (PID: {:?})", id, pid);
@@ -108,7 +108,7 @@ impl ModuleRegistry {
         }
 
         // Get and remove process
-        let mut process = {
+        let process_arc = {
             let mut modules = self.modules.write().await;
             modules
                 .remove(id)
@@ -116,6 +116,7 @@ impl ModuleRegistry {
         };
 
         // Shutdown
+        let mut process = process_arc.lock().await;
         if let Err(e) = process.shutdown(timeout_ms).await {
             tracing::warn!("Graceful shutdown failed for '{}': {}", id, e);
             process.kill().await?;
@@ -137,9 +138,10 @@ impl ModuleRegistry {
     /// Send message to module
     pub async fn send_to_module(&self, id: &str, msg: crate::protocol::DaemonToModule) -> Result<()> {
         let modules = self.modules.read().await;
-        let process = modules
+        let process_arc = modules
             .get(id)
             .ok_or_else(|| DaemonError::Module(format!("Module '{}' not found", id)))?;
+        let process = process_arc.lock().await;
         process.send(msg)
     }
 

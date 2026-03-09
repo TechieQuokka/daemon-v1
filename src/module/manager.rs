@@ -50,12 +50,13 @@ impl ModuleManager {
         let data_layer = self.data_layer.clone();
         let registry = self.registry.clone();
 
-        // Get module process
-        let mut process = {
-            let mut modules = self.registry.modules.write().await;
+        // Get process Arc from registry
+        let process_arc = {
+            let modules = self.registry.modules.read().await;
             modules
-                .remove(&module_id)
+                .get(&module_id)
                 .ok_or_else(|| DaemonError::Module(format!("Module '{}' not found", module_id)))?
+                .clone()
         };
 
         let handler_id = module_id.clone();
@@ -64,15 +65,21 @@ impl ModuleManager {
 
             loop {
                 // Receive message from module
-                match process.recv().await {
+                let msg = {
+                    let mut process = process_arc.lock().await;
+                    process.recv().await
+                };
+
+                match msg {
                     Some(msg) => {
+                        let mut process = process_arc.lock().await;
                         if let Err(e) = Self::handle_module_message(
                             &handler_id,
                             msg,
                             &bus,
                             &data_layer,
                             &registry,
-                            &mut process,
+                            &mut *process,
                         )
                         .await
                         {
@@ -177,6 +184,18 @@ impl ModuleManager {
                 let process_tx = process.to_module_tx.clone();
                 tokio::spawn(async move {
                     while let Some(bus_msg) = receiver.recv().await {
+                        // Prevent self-subscription: Skip events published by this module
+                        if let MessageSource::Module { id } = &bus_msg.source {
+                            if id == &module_id_clone {
+                                tracing::debug!(
+                                    "Module '{}' skipping self-published event on topic '{}'",
+                                    module_id_clone,
+                                    bus_msg.topic
+                                );
+                                continue;
+                            }
+                        }
+
                         let event = DaemonToModule::Event {
                             topic: bus_msg.topic,
                             data: Some(bus_msg.payload),
