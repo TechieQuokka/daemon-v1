@@ -766,16 +766,15 @@ def send_request(action, params, req_id):
 
 ---
 
-#### `bus.subscribe` - 이벤트 구독 (Long Polling)
+#### `bus.subscribe` - 토픽 구독 등록
 
-Bus 이벤트를 실시간으로 수신합니다.
+Bus 토픽을 구독하고 subscriber ID를 발급받습니다.
 
 ```json
 {
   "action": "bus.subscribe",
   "params": {
-    "topic": "fibonacci.result",
-    "timeout": 30000
+    "topic": "fibonacci.result"
   },
   "id": "req-11"
 }
@@ -783,12 +782,48 @@ Bus 이벤트를 실시간으로 수신합니다.
 
 **Parameters:**
 - `topic` (string, required): 구독할 토픽 패턴 (wildcards 지원: `*`, `#`)
+
+**Response:**
+```json
+{
+  "id": "req-11",
+  "success": true,
+  "result": {
+    "subscriber_id": "controller:550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+**설명:**
+- 토픽 구독을 등록하고 고유한 `subscriber_id` 반환
+- 발급받은 `subscriber_id`로 `bus.recv`를 호출하여 이벤트 수신
+- 구독은 지속적으로 유지됨 (1회성 아님)
+
+---
+
+#### `bus.recv` - 구독 이벤트 수신
+
+구독한 토픽의 이벤트를 수신합니다 (Long Polling).
+
+```json
+{
+  "action": "bus.recv",
+  "params": {
+    "subscriber_id": "controller:550e8400-e29b-41d4-a716-446655440000",
+    "timeout": 30000
+  },
+  "id": "req-12"
+}
+```
+
+**Parameters:**
+- `subscriber_id` (string, required): `bus.subscribe`로 발급받은 ID
 - `timeout` (number, optional): 타임아웃 (밀리초, 기본값: 30000)
 
 **Response (이벤트 수신):**
 ```json
 {
-  "id": "req-11",
+  "id": "req-12",
   "success": true,
   "result": {
     "topic": "fibonacci.result",
@@ -796,7 +831,6 @@ Bus 이벤트를 실시간으로 수신합니다.
       "n": 10,
       "result": 55
     },
-    "publisher": "fibonacci",
     "timestamp": 1234567890
   }
 }
@@ -805,21 +839,20 @@ Bus 이벤트를 실시간으로 수신합니다.
 **Response (타임아웃):**
 ```json
 {
-  "id": "req-11",
+  "id": "req-12",
   "success": true,
   "result": {
-    "topic": "fibonacci.result",
-    "data": null,
     "timeout": true
   }
 }
 ```
 
 **동작 방식:**
-1. Controller가 subscribe 요청을 보내면 Daemon이 이벤트 대기
-2. 이벤트 발생 시 즉시 응답 반환 (Fast Path)
-3. timeout 초과 시 `timeout: true` 반환
-4. 응답 후 자동으로 구독 해제 (1회성)
+1. `bus.subscribe`로 구독 등록 후 `subscriber_id` 발급
+2. `bus.recv`로 이벤트 대기 (Long Polling)
+3. 이벤트 발생 시 즉시 응답 반환
+4. timeout 초과 시 `timeout: true` 반환
+5. 여러 이벤트를 받으려면 `bus.recv` 반복 호출
 
 **활용:**
 - Data Layer 폴링 대체 (효율성 ~88% 향상)
@@ -827,9 +860,9 @@ Bus 이벤트를 실시간으로 수신합니다.
 - 스트리밍 데이터 처리
 
 **주의:**
-- Long Polling 방식 (1 request = 1 event)
-- 여러 이벤트를 받으려면 반복 요청 필요
-- Module은 bus.subscribe 불가 (Controller만 가능)
+- Long Polling 방식 (1회 호출 = 1개 이벤트)
+- 여러 이벤트를 받으려면 반복 호출 필요
+- Module은 bus.subscribe/recv 불가 (Controller만 가능)
 
 ---
 
@@ -913,9 +946,14 @@ class DaemonClient:
             'data': data
         })
 
-    def subscribe(self, topic, timeout=30000):
+    def subscribe(self, topic):
         return self._send('bus.subscribe', {
-            'topic': topic,
+            'topic': topic
+        })
+
+    def recv_event(self, subscriber_id, timeout=30000):
+        return self._send('bus.recv', {
+            'subscriber_id': subscriber_id,
             'timeout': timeout
         })
 
@@ -924,8 +962,13 @@ client = DaemonClient()
 result = client.start_module('calc', './modules/calculator')
 print(result)
 
-# 실시간 이벤트 수신 (Long Polling)
-event = client.subscribe('fibonacci.result', timeout=30000)
+# 실시간 이벤트 수신
+# 1. 구독 등록
+sub_result = client.subscribe('fibonacci.result')
+subscriber_id = sub_result['result']['subscriber_id']
+
+# 2. 이벤트 수신 (Long Polling)
+event = client.recv_event(subscriber_id, timeout=30000)
 if not event['result'].get('timeout'):
     print(f"Received: {event['result']['data']}")
 ```
@@ -1262,5 +1305,5 @@ result = client.get_data('output')
 
 ---
 
-**버전**: 0.1.0
-**최종 수정**: 2026-03-08
+**버전**: 1.0.7
+**최종 수정**: 2026-03-11

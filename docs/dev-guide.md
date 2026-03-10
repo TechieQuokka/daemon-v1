@@ -568,12 +568,11 @@ Bus에 이벤트를 발행합니다 (비동기).
 
 #### `bus.subscribe`
 
-Bus 이벤트를 구독합니다 (Long Polling).
+Bus 토픽을 구독하고 subscriber ID를 발급받습니다.
 
 **Parameters:**
 
 - `topic` (string, required): 구독할 토픽 패턴 (wildcards 지원)
-- `timeout` (number, optional): 타임아웃 (밀리초, 기본값: 30000)
 
 **Request:**
 
@@ -581,10 +580,45 @@ Bus 이벤트를 구독합니다 (Long Polling).
 {
   "action": "bus.subscribe",
   "params": {
-    "topic": "fibonacci.result",
-    "timeout": 30000
+    "topic": "fibonacci.result"
   },
   "id": "req-7"
+}
+```
+
+**Response:**
+
+```json
+{
+  "id": "req-7",
+  "success": true,
+  "result": {
+    "subscriber_id": "controller:550e8400-e29b-41d4-a716-446655440000"
+  }
+}
+```
+
+---
+
+#### `bus.recv`
+
+구독한 토픽의 이벤트를 수신합니다 (Long Polling).
+
+**Parameters:**
+
+- `subscriber_id` (string, required): `bus.subscribe`로 발급받은 ID
+- `timeout` (number, optional): 타임아웃 (밀리초, 기본값: 30000)
+
+**Request:**
+
+```json
+{
+  "action": "bus.recv",
+  "params": {
+    "subscriber_id": "controller:550e8400-e29b-41d4-a716-446655440000",
+    "timeout": 30000
+  },
+  "id": "req-8"
 }
 ```
 
@@ -592,7 +626,7 @@ Bus 이벤트를 구독합니다 (Long Polling).
 
 ```json
 {
-  "id": "req-7",
+  "id": "req-8",
   "success": true,
   "result": {
     "topic": "fibonacci.result",
@@ -600,7 +634,6 @@ Bus 이벤트를 구독합니다 (Long Polling).
       "n": 10,
       "result": 55
     },
-    "publisher": "fibonacci",
     "timestamp": 1234567890
   }
 }
@@ -610,11 +643,9 @@ Bus 이벤트를 구독합니다 (Long Polling).
 
 ```json
 {
-  "id": "req-7",
+  "id": "req-8",
   "success": true,
   "result": {
-    "topic": "fibonacci.result",
-    "data": null,
     "timeout": true
   }
 }
@@ -622,11 +653,11 @@ Bus 이벤트를 구독합니다 (Long Polling).
 
 **동작 방식:**
 
-1. Controller가 `bus.subscribe` 요청 전송
-2. Daemon이 해당 토픽을 구독하고 이벤트 대기
+1. Controller가 `bus.subscribe`로 구독 등록 후 `subscriber_id` 발급
+2. `bus.recv`로 이벤트 대기 (Long Polling)
 3. 이벤트 도착 시 즉시 응답 반환 (Fast Path)
 4. 타임아웃 시 `timeout: true`와 함께 응답 반환
-5. 응답 후 자동으로 구독 해제 (1회성)
+5. 여러 이벤트를 받으려면 `bus.recv` 반복 호출
 
 **활용 사례:**
 
@@ -634,7 +665,7 @@ Bus 이벤트를 구독합니다 (Long Polling).
 - 스트리밍 데이터 전송 (진행률, 부분 결과)
 - 이벤트 기반 워크플로우
 
-**Note:** Long Polling 방식이므로 여러 이벤트를 받으려면 반복 요청 필요
+**Note:** Long Polling 방식이므로 여러 이벤트를 받으려면 `bus.recv` 반복 호출 필요
 
 ---
 
@@ -976,9 +1007,9 @@ controller.publish('dataset.train', {
 
 ---
 
-### bus.subscribe: 실시간 이벤트 수신
+### bus.subscribe + bus.recv: 실시간 이벤트 수신
 
-#### ✅ bus.subscribe 사용 (Long Polling)
+#### ✅ bus.subscribe + bus.recv 사용 (Long Polling)
 
 **언제:**
 
@@ -998,39 +1029,52 @@ while True:
         break
     time.sleep(0.1)
 
-# 개선: bus.subscribe (Long Polling)
-response = daemon.bus_subscribe('fibonacci.result', timeout=30000)
-if not response.get('timeout'):
-    result = response['data']
+# 개선: bus.subscribe + bus.recv (Long Polling)
+# Step 1: 구독 등록
+sub_response = daemon.bus_subscribe('fibonacci.result')
+subscriber_id = sub_response['result']['subscriber_id']
+
+# Step 2: 이벤트 수신
+event_response = daemon.bus_recv(subscriber_id, timeout=30000)
+if not event_response['result'].get('timeout'):
+    result = event_response['result']['data']
 
 # 2. 스트리밍 진행률 수신
 daemon.bus_publish('dataset.train', {'model': 'resnet50', 'epochs': 100})
 
+# 구독 등록
+sub = daemon.bus_subscribe('train.progress')
+sub_id = sub['result']['subscriber_id']
+
 for epoch in range(100):
-    event = daemon.bus_subscribe('train.progress', timeout=60000)
-    if not event.get('timeout'):
-        print(f"Epoch {event['data']['epoch']}: Loss = {event['data']['loss']}")
+    event = daemon.bus_recv(sub_id, timeout=60000)
+    if not event['result'].get('timeout'):
+        print(f"Epoch {event['result']['data']['epoch']}: Loss = {event['result']['data']['loss']}")
 
 # 3. 배치 결과 수신
 daemon.bus_publish('fibonacci.command', {'action': 'calculate_range', 'start': 0, 'count': 10000})
 
+# 구독 등록
+sub = daemon.bus_subscribe('fibonacci.stream')
+sub_id = sub['result']['subscriber_id']
+
 while True:
-    event = daemon.bus_subscribe('fibonacci.stream', timeout=30000)
-    if event.get('timeout'):
+    event = daemon.bus_recv(sub_id, timeout=30000)
+    if event['result'].get('timeout'):
         break  # 모든 결과 수신 완료
-    process_batch(event['data'])
+    process_batch(event['result']['data'])
 ```
 
 **장점:**
 
 - **효율적**: Data Layer 폴링보다 CPU 사용량 ~88% 감소
 - **실시간**: 이벤트 도착 즉시 반환 (지연 최소화)
-- **간단**: 반복 요청만으로 스트리밍 구현 가능
+- **간단**: 1회 구독 + 반복 recv로 스트리밍 구현 가능
 
 **주의사항:**
 
-- Long Polling 방식: 1회 요청당 1개 이벤트만 수신
-- 여러 이벤트를 받으려면 반복 요청 필요
+- Long Polling 방식: 1회 recv 호출당 1개 이벤트만 수신
+- 여러 이벤트를 받으려면 bus.recv 반복 호출 필요
 - timeout 설정 권장 (기본값: 30초)
 
 ---

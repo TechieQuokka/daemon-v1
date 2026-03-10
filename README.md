@@ -211,7 +211,8 @@ A stable, extensible Rust-based daemon with process-isolated modules, central me
 **Message Bus:**
 
 - `bus.publish` - Publish event to bus
-- `bus.subscribe` - Subscribe to bus events (Long Polling)
+- `bus.subscribe` - Subscribe to topic (returns subscriber_id)
+- `bus.recv` - Receive events from subscription (Long Polling)
 
 **Daemon:**
 
@@ -244,6 +245,18 @@ Examples:
   - `calculator.#` matches `calculator.done` and `calculator.task.done`
   - `#.created` matches `created`, `user.created`, `user.profile.created`
   - `#` matches all events
+
+### Module Subscription Restrictions
+
+Modules can only subscribe to:
+- ✅ `system.*` - System events
+- ✅ `{module_id}.*` - Own namespace events
+
+**Rejected automatically:**
+- ❌ `{other_module}.*` - Other module topics (enforces isolation)
+- ❌ `*`, `#` - Global wildcards
+
+This prevents direct module-to-module communication, ensuring all coordination goes through the Controller.
 
 ### Ordering Guarantee
 
@@ -404,6 +417,8 @@ See `examples/modules/` for reference implementations in:
 - [x] Command-line argument parsing (--config flag)
 - [x] Module command execution (module.command action)
 - [x] Daemon shutdown via controller (daemon.shutdown action)
+- [x] Bus subscription API (bus.subscribe + bus.recv for Long Polling)
+- [x] Module isolation enforcement (automatic namespace validation)
 
 ### Planned 📋
 

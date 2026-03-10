@@ -175,5 +175,6 @@ JSON 명령 입력:
 ## 더 알아보기
 
 - [README.md](README.md) - 전체 문서
-- [examples/](examples/) - 예제 코드
-- [설계 문서](C:\Users\seung\.claude\plans\recursive-discovering-map.md)
+- [API Reference](API.md) - API 레퍼런스
+- [Developer Guide](docs/dev-guide.md) - 개발자 가이드
+- [Protocol Reference](docs/protocol-reference.md) - 프로토콜 레퍼런스
