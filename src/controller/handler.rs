@@ -4,6 +4,9 @@ use crate::protocol::{actions, ControllerRequest, ControllerResponse};
 use crate::storage::DataLayer;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
 
 /// Command handler for Controller requests
 pub struct CommandHandler {
@@ -11,6 +14,7 @@ pub struct CommandHandler {
     data_layer: DataLayer,
     module_manager: ModuleManager,
     shutdown_tx: Option<tokio::sync::mpsc::Sender<()>>,
+    subscriptions: Arc<Mutex<HashMap<String, mpsc::UnboundedReceiver<BusMessage>>>>,
 }
 
 impl CommandHandler {
@@ -20,6 +24,7 @@ impl CommandHandler {
             data_layer,
             module_manager,
             shutdown_tx: None,
+            subscriptions: Arc::new(Mutex::new(HashMap::new()))
         }
     }
 
@@ -43,6 +48,7 @@ impl CommandHandler {
             actions::DATA_LIST => self.handle_data_list().await,
             actions::BUS_PUBLISH => self.handle_bus_publish(request.params).await,
             actions::BUS_SUBSCRIBE => self.handle_bus_subscribe(request.params).await,
+            actions::BUS_RECV => self.handle_bus_recv(request.params).await,
             actions::DAEMON_STATUS => self.handle_daemon_status().await,
             actions::DAEMON_SHUTDOWN => self.handle_daemon_shutdown().await,
             _ => Err(format!("Unknown action: {}", request.action)),
@@ -206,57 +212,19 @@ impl CommandHandler {
 
     async fn handle_bus_subscribe(&self, params: Option<Value>) -> Result<Value, String> {
         let params = params.ok_or("Missing parameters")?;
-        let topic = params["topic"]
-            .as_str()
-            .ok_or("Missing 'topic' field")?
-            .to_string();
-        let timeout_ms = params["timeout"]
-            .as_u64()
-            .unwrap_or(30000); // Default: 30 seconds
-
-        // Generate unique subscriber ID for this request
+        let topic = params["topic"].as_str().ok_or("Missing 'topic' field")?.to_string();
         let subscriber_id = format!("controller:{}", uuid::Uuid::new_v4());
 
-        // Subscribe to bus
-        let mut receiver = self.bus
+        let receiver = self.bus
             .subscribe(subscriber_id.clone(), topic.clone())
             .await
             .map_err(|e| e.to_string())?;
 
-        // Wait for event with timeout (Long Polling)
-        let timeout_duration = std::time::Duration::from_millis(timeout_ms);
-        let result = tokio::time::timeout(timeout_duration, receiver.recv()).await;
+        // receiver 저장
+        let mut subs: tokio::sync::MutexGuard<HashMap<String, mpsc::UnboundedReceiver<BusMessage>>> = self.subscriptions.lock().await;
+        subs.insert(subscriber_id.clone(), receiver);
 
-        // Unsubscribe after receiving or timeout
-        let _ = self.bus.unsubscribe(&subscriber_id, &topic).await;
-
-        match result {
-            Ok(Some(event)) => {
-                // Event received - return immediately
-                Ok(json!({
-                    "topic": event.topic,
-                    "data": event.payload,
-                    "publisher": match event.source {
-                        MessageSource::Module { id } => id,
-                        MessageSource::Controller => "controller".to_string(),
-                        MessageSource::System => "system".to_string(),
-                    },
-                    "timestamp": event.timestamp
-                }))
-            }
-            Ok(None) => {
-                // Channel closed (shouldn't happen normally)
-                Err("Subscription channel closed unexpectedly".to_string())
-            }
-            Err(_) => {
-                // Timeout - no event received
-                Ok(json!({
-                    "topic": topic,
-                    "data": null,
-                    "timeout": true
-                }))
-            }
-        }
+        Ok(json!({ "subscriber_id": subscriber_id }))
     }
 
     async fn handle_daemon_status(&self) -> Result<Value, String> {
@@ -279,6 +247,26 @@ impl CommandHandler {
             Ok(json!({ "status": "shutting_down" }))
         } else {
             Err("Shutdown not available".to_string())
+        }
+    }
+
+    async fn handle_bus_recv(&self, params: Option<Value>) -> Result<Value, String> {
+        let params = params.ok_or("Missing parameters")?;
+        let subscriber_id = params["subscriber_id"].as_str().ok_or("Missing 'subscriber_id' field")?.to_string();
+        let timeout_ms = params["timeout"].as_u64().unwrap_or(30000);
+
+        let mut subs: tokio::sync::MutexGuard<HashMap<String, mpsc::UnboundedReceiver<BusMessage>>> = self.subscriptions.lock().await;
+        let receiver = subs.get_mut(&subscriber_id).ok_or("Subscriber not found")?;
+
+        let timeout_duration = std::time::Duration::from_millis(timeout_ms);
+        match tokio::time::timeout(timeout_duration, receiver.recv()).await {
+            Ok(Some(event)) => Ok(json!({
+                "topic": event.topic,
+                "data": event.payload,
+                "timestamp": event.timestamp
+            })),
+            Ok(None) => Err("Subscription channel closed".to_string()),
+            Err(_) => Ok(json!({ "timeout": true }))
         }
     }
 }

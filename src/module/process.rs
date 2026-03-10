@@ -22,7 +22,10 @@ impl ModuleProcess {
         let mut child = Command::new(&path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            // Use inherit instead of piped to prevent stderr pipe buffer from filling up.
+            // When piped, the OS pipe buffer (~64KB) fills up if Daemon doesn't read stderr,
+            // causing the module process to block on stderr writes.
+            .stderr(Stdio::inherit())
             .spawn()
             .map_err(|e| DaemonError::Module(format!("Failed to spawn module: {}", e)))?;
 

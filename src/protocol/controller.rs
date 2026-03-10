@@ -61,6 +61,7 @@ pub mod actions {
     // Bus
     pub const BUS_PUBLISH: &str = "bus.publish";
     pub const BUS_SUBSCRIBE: &str = "bus.subscribe";
+    pub const BUS_RECV: &str = "bus.recv";
 
     // Daemon
     pub const DAEMON_STATUS: &str = "daemon.status";
