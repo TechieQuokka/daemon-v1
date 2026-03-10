@@ -2,6 +2,12 @@
 
 A stable, extensible Rust-based daemon with process-isolated modules, central message bus, volatile data storage, and TCP-based controller interface.
 
+## Documentation
+
+📚 **[Developer Guide](docs/dev-guide.md)** - Architecture diagrams, decision guide, and best practices
+
+📋 **[Protocol Reference](docs/protocol-reference.md)** - Quick reference for all APIs and messages (compact tables)
+
 ## Architecture
 
 ```
@@ -205,6 +211,7 @@ A stable, extensible Rust-based daemon with process-isolated modules, central me
 **Message Bus:**
 
 - `bus.publish` - Publish event to bus
+- `bus.subscribe` - Subscribe to bus events (Long Polling)
 
 **Daemon:**
 
@@ -421,7 +428,3 @@ See `examples/modules/` for reference implementations in:
 ### Why SIEVE?
 
 **Efficiency**: Recent research (NSDI'24) shows SIEVE has lower miss ratio than LRU while being simpler than ARC. Automatic eviction reduces memory management burden on modules.
-
-## License
-
-[License information here]

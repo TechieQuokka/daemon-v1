@@ -108,6 +108,58 @@ impl ModuleManager {
         Ok(())
     }
 
+    /// Validate module subscription topic
+    ///
+    /// Modules can only subscribe to:
+    /// - system.* (system events)
+    /// - {module_id}.* (own events/commands)
+    ///
+    /// This prevents direct module-to-module communication.
+    fn validate_module_subscription(module_id: &str, topic: &str) -> Result<()> {
+        // Reject empty topics
+        if topic.is_empty() {
+            return Err(DaemonError::Module(
+                "Topic cannot be empty".to_string()
+            ));
+        }
+
+        // Reject overly broad wildcards
+        if topic == "*" || topic == "#" {
+            return Err(DaemonError::Module(format!(
+                "Module '{}' cannot subscribe to global wildcard '{}'. Use 'system.*' or '{}.*' instead.",
+                module_id, topic, module_id
+            )));
+        }
+
+        // Allow system events
+        if topic.starts_with("system.") || topic == "system" {
+            return Ok(());
+        }
+
+        // Allow module's own namespace
+        let module_prefix = format!("{}.", module_id);
+        if topic.starts_with(&module_prefix) || topic == module_id {
+            return Ok(());
+        }
+
+        // Allow wildcard subscriptions within allowed namespaces
+        if topic == "system.*" || topic == "system.#" {
+            return Ok(());
+        }
+
+        let module_wildcard = format!("{}.*", module_id);
+        let module_hash = format!("{}.#", module_id);
+        if topic == module_wildcard || topic == module_hash {
+            return Ok(());
+        }
+
+        // Reject all other topics (cross-module communication)
+        Err(DaemonError::Module(format!(
+            "Module '{}' cannot subscribe to topic '{}'. Modules can only subscribe to 'system.*' or '{}.*' topics.",
+            module_id, topic, module_id
+        )))
+    }
+
     /// Handle a message from a module
     async fn handle_module_message(
         module_id: &str,
@@ -157,6 +209,17 @@ impl ModuleManager {
 
             ModuleToDaemon::SubscribeRequest { topic } => {
                 tracing::debug!("Module '{}' subscribing to topic '{}'", module_id, topic);
+
+                // Validate subscription (prevent cross-module communication)
+                if let Err(e) = Self::validate_module_subscription(module_id, &topic) {
+                    tracing::warn!(
+                        "Module '{}' attempted to subscribe to restricted topic '{}': {}",
+                        module_id,
+                        topic,
+                        e
+                    );
+                    return Err(e);
+                }
 
                 // Subscribe to bus
                 let subscriber_id = format!("module:{}", module_id);
@@ -390,5 +453,54 @@ impl Clone for ModuleManager {
             data_layer: self.data_layer.clone(),
             handlers: self.handlers.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_module_subscription_allowed() {
+        // System events
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "system.shutdown").is_ok());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "system").is_ok());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "system.*").is_ok());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "system.#").is_ok());
+
+        // Own namespace
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "fibonacci.command").is_ok());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "fibonacci.result").is_ok());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "fibonacci").is_ok());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "fibonacci.*").is_ok());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "fibonacci.#").is_ok());
+    }
+
+    #[test]
+    fn test_validate_module_subscription_rejected() {
+        // Cross-module communication (rejected)
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "calculator.command").is_err());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "calculator.result").is_err());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "logger.log").is_err());
+
+        // Wildcard across modules (rejected)
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "calculator.*").is_err());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "calculator.#").is_err());
+
+        // Generic wildcards (rejected - too broad)
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "*").is_err());
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "#").is_err());
+    }
+
+    #[test]
+    fn test_validate_module_subscription_edge_cases() {
+        // Module name as prefix (rejected if not exact match or with dot)
+        assert!(ModuleManager::validate_module_subscription("fib", "fibonacci.command").is_err());
+
+        // Empty topic (rejected)
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "").is_err());
+
+        // Similar but different namespace (rejected)
+        assert!(ModuleManager::validate_module_subscription("fibonacci", "fibonacci_v2.command").is_err());
     }
 }

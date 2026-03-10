@@ -28,7 +28,9 @@ async fn main() -> daemon_v1::Result<()> {
     tracing::subscriber::set_global_default(subscriber)
         .expect("setting default subscriber failed");
 
-    tracing::info!("Starting Daemon V1");
+    // Display version info
+    let version = env!("CARGO_PKG_VERSION");
+    tracing::info!("Starting Daemon V1 v{}", version);
 
     // Parse command-line arguments
     let cli = Cli::parse();
