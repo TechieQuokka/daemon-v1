@@ -78,11 +78,10 @@ impl ModuleRegistry {
         let process = ModuleProcess::spawn(id.clone(), path.clone(), config).await?;
         let pid = process.pid();
 
-        // Update info to Running
+        // Update pid after spawn
         {
             let mut info = self.info.write().await;
             if let Some(module_info) = info.get_mut(&id) {
-                module_info.status = ModuleStatus::Running;
                 module_info.pid = pid;
             }
         }
@@ -155,6 +154,16 @@ impl ModuleRegistry {
     pub async fn get_info(&self, id: &str) -> Option<ModuleInfo> {
         let info = self.info.read().await;
         info.get(id).cloned()
+    }
+
+    /// Update module status
+    pub async fn set_status(&self, id: &str, status: ModuleStatus) -> Result<()> {
+        let mut info = self.info.write().await;
+        let module_info = info
+            .get_mut(id)
+            .ok_or_else(|| DaemonError::Module(format!("Module '{}' not found", id)))?;
+        module_info.status = status;
+        Ok(())
     }
 
     /// Update module subscriptions

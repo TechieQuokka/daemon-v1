@@ -97,6 +97,8 @@ pub enum ModuleToDaemon {
         key: String,
     },
 
+    InitComplete,
+
     /// Log message
     Log {
         message: String,

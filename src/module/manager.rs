@@ -1,5 +1,5 @@
 use super::process::ModuleProcess;
-use super::registry::{ModuleInfo, ModuleRegistry};
+use super::registry::{ModuleInfo, ModuleRegistry, ModuleStatus};
 use crate::bus::{BusMessage, MessageBus, MessageSource};
 use crate::error::{DaemonError, Result};
 use crate::protocol::{DaemonToModule, ModuleToDaemon};
@@ -365,6 +365,12 @@ impl ModuleManager {
                 })?;
 
                 tracing::debug!("Module '{}' deleted data key '{}'", module_id, key);
+            }
+
+            ModuleToDaemon::InitComplete => {
+                registry.set_status(module_id, ModuleStatus::Running).await
+                    .map_err(|e| DaemonError::Module(format!("Failed to update module status: {}", e)))?;
+                tracing::info!("Module '{}' is now Running", module_id);
             }
 
             ModuleToDaemon::Log { message, level } => {
